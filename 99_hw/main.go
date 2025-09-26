@@ -4,15 +4,52 @@ import (
 	"encoding/json"
 	"encoding/xml"
 	"fmt"
+	"net/http"
 	"os"
 	"sort"
+	"strconv"
 	"strings"
 )
 
-func main() {
-	data, _ := SearchServer("", "Name", 0, 100, 0)
+var formTmpl = []byte(`
+<html>
+  <body>
+    <h3>Search form</h3>
+    <form action="/search" method="post">
+      Query: <input type="text" name="query"><br>
+      OrderField: <input type="text" name="orderField" value="Name"><br>
+      OrderBy: <input type="number" name="orderBy" value="0"><br>
+      Limit: <input type="number" name="limit" value="10"><br>
+      Offset: <input type="number" name="offset" value="0"><br>
+      <input type="submit" value="Search">
+    </form>
+  </body>
+</html>
+`)
+
+func SearchServerHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		w.Write(formTmpl)
+		return
+	}
+	query := r.FormValue("query")
+	orderField := r.FormValue("orderField")
+	orderBy, _ := strconv.Atoi(r.FormValue("orderBy"))
+	limit, _ := strconv.Atoi(r.FormValue("limit"))
+	offset, _ := strconv.Atoi(r.FormValue("offset"))
+
+	fmt.Fprintln(w, "you enter: ", query, orderField, orderBy, orderBy, limit, offset)
+
+	data, _ := SearchServer(query, orderField, orderBy, limit, offset)
+
 	pretty, _ := json.MarshalIndent(data, "", "  ")
-	fmt.Println(string(pretty))
+	fmt.Fprintln(w, string(pretty))
+
+}
+
+func main() {
+	http.HandleFunc("/", SearchServerHandler)
+	http.ListenAndServe(":8080", nil)
 }
 
 type UsersXml struct {
