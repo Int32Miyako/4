@@ -6,12 +6,77 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"sort"
 	"strconv"
 	"strings"
 	"testing"
 )
+
+func TestSearchHandler_WithSprintf(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(searchHandler))
+	defer server.Close()
+
+	tests := []struct {
+		name    string
+		req     *SearchRequest
+		IsError bool
+	}{
+		{
+			name:    "Иван по Age Desc",
+			req:     &SearchRequest{Limit: 10, Offset: 0, Query: "Hilda", OrderField: "Age", OrderBy: OrderByDesc},
+			IsError: false,
+		},
+		{
+			name:    "Иван по Name Asc с offset",
+			req:     &SearchRequest{Limit: 5, Offset: 5, Query: "F", OrderField: "Name", OrderBy: OrderByAsc},
+			IsError: false,
+		},
+		{
+			name:    "все пользователи по Id Desc",
+			req:     &SearchRequest{Limit: 20, Offset: 0, Query: "", OrderField: "Id", OrderBy: OrderByDesc},
+			IsError: false,
+		},
+		{
+			name:    "Мария без orderField",
+			req:     &SearchRequest{Limit: 15, Offset: 10, Query: "", OrderField: "", OrderBy: OrderByAsc},
+			IsError: false,
+		},
+	}
+
+	for caseNum, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			url := fmt.Sprintf(
+				"%s/search?query=%s&orderField=%s&orderBy=%d&limit=%d&offset=%d",
+				server.URL,
+				url.QueryEscape(tt.req.Query),
+				url.QueryEscape(tt.req.OrderField),
+				tt.req.OrderBy,
+				tt.req.Limit,
+				tt.req.Offset,
+			)
+
+			resp, err := http.Get(url)
+
+			if err != nil {
+				t.Errorf("unexpected error: %d %v", caseNum, err)
+			}
+			defer resp.Body.Close()
+
+			var users []User
+			if err := json.NewDecoder(resp.Body).Decode(&users); err != nil {
+				t.Errorf("decode error: %v", err)
+			}
+
+		})
+	}
+}
+func TestSearchHandler_Success(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(searchHandler))
+	defer server.Close()
+
+}
 
 func toUser(u UserXml) User {
 	return User{
@@ -60,8 +125,14 @@ func searchHandler(w http.ResponseWriter, r *http.Request) {
 
 	fmt.Fprintln(w, "you enter: ", query, orderField, orderBy, orderBy, limit, offset)
 
-	users, _ := SearchServer(query, orderField, orderBy, limit, offset)
+	users, err := SearchServer(query, orderField, orderBy, limit, offset)
 
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
 	pretty, _ := json.MarshalIndent(users, "", "  ")
 	fmt.Fprintln(w, string(pretty))
 
