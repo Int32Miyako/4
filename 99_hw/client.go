@@ -40,6 +40,7 @@ const (
 	OrderByDesc = 1
 
 	ErrorBadOrderField = `OrderField invalid`
+	ErrorBadOrderBy    = `orderBy must be -1, 0 or 1`
 )
 
 type SearchRequest struct {

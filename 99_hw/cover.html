@@ -55,11 +55,11 @@
 			<div id="nav">
 				<select id="files">
 				
-				<option value="file0">hw4/client.go (0.0%)</option>
+				<option value="file0">hw4/client.go (57.1%)</option>
 				
 				<option value="file1">hw4/main.go (0.0%)</option>
 				
-				<option value="file2">hw4/search.go (74.6%)</option>
+				<option value="file2">hw4/search.go (79.0%)</option>
 				
 				</select>
 			</div>
@@ -115,6 +115,7 @@ const (
         OrderByDesc = 1
 
         ErrorBadOrderField = `OrderField invalid`
+        ErrorBadOrderBy    = `orderBy must be -1, 0 or 1`
 )
 
 type SearchRequest struct {
@@ -133,22 +134,22 @@ type SearchClient struct {
 }
 
 // FindUsers отправляет запрос во внешнюю систему, которая непосредственно ищет пользоваталей
-func (srv *SearchClient) FindUsers(req SearchRequest) (*SearchResponse, error) <span class="cov0" title="0">{
+func (srv *SearchClient) FindUsers(req SearchRequest) (*SearchResponse, error) <span class="cov8" title="1">{
 
         searcherParams := url.Values{}
 
         if req.Limit &lt; 0 </span><span class="cov0" title="0">{
                 return nil, fmt.Errorf("limit must be &gt; 0")
         }</span>
-        <span class="cov0" title="0">if req.Limit &gt; 25 </span><span class="cov0" title="0">{
+        <span class="cov8" title="1">if req.Limit &gt; 25 </span><span class="cov0" title="0">{
                 req.Limit = 25
         }</span>
-        <span class="cov0" title="0">if req.Offset &lt; 0 </span><span class="cov0" title="0">{
+        <span class="cov8" title="1">if req.Offset &lt; 0 </span><span class="cov0" title="0">{
                 return nil, fmt.Errorf("offset must be &gt; 0")
         }</span>
 
         //нужно для получения следующей записи, на основе которой мы скажем - можно показать переключатель следующей страницы или нет
-        <span class="cov0" title="0">req.Limit++
+        <span class="cov8" title="1">req.Limit++
 
         searcherParams.Add("limit", strconv.Itoa(req.Limit))
         searcherParams.Add("offset", strconv.Itoa(req.Offset))
@@ -166,7 +167,7 @@ func (srv *SearchClient) FindUsers(req SearchRequest) (*SearchResponse, error) <
                 }</span>
                 <span class="cov0" title="0">return nil, fmt.Errorf("unknown error %s", err)</span>
         }
-        <span class="cov0" title="0">defer resp.Body.Close()
+        <span class="cov8" title="1">defer resp.Body.Close()
         body, err := ioutil.ReadAll(resp.Body)
 
         switch resp.StatusCode </span>{
@@ -186,21 +187,21 @@ func (srv *SearchClient) FindUsers(req SearchRequest) (*SearchResponse, error) <
                 <span class="cov0" title="0">return nil, fmt.Errorf("unknown bad request error: %s", errResp.Error)</span>
         }
 
-        <span class="cov0" title="0">data := []User{}
+        <span class="cov8" title="1">data := []User{}
         err = json.Unmarshal(body, &amp;data)
         if err != nil </span><span class="cov0" title="0">{
                 return nil, fmt.Errorf("cant unpack result json: %s", err)
         }</span>
 
-        <span class="cov0" title="0">result := SearchResponse{}
+        <span class="cov8" title="1">result := SearchResponse{}
         if len(data) == req.Limit </span><span class="cov0" title="0">{
                 result.NextPage = true
                 result.Users = data[0 : len(data)-1]
-        }</span> else<span class="cov0" title="0"> {
+        }</span> else<span class="cov8" title="1"> {
                 result.Users = data[0:len(data)]
         }</span>
 
-        <span class="cov0" title="0">return &amp;result, err</span>
+        <span class="cov8" title="1">return &amp;result, err</span>
 }
 </pre>
 		
@@ -216,7 +217,7 @@ func main() {<span class="cov0" title="0">
 import (
         "encoding/json"
         "encoding/xml"
-        "fmt"
+        "errors"
         "net/http"
         "os"
         "sort"
@@ -238,7 +239,7 @@ func searchHandler(w http.ResponseWriter, r *http.Request) <span class="cov8" ti
         }</span>
 
         <span class="cov8" title="1">w.Header().Set("Content-Type", "application/json")
-        if err := json.NewEncoder(w).Encode(users); err != nil </span><span class="cov0" title="0">{
+        if err = json.NewEncoder(w).Encode(users); err != nil </span><span class="cov0" title="0">{
                 http.Error(w, err.Error(), http.StatusInternalServerError)
         }</span>
 }
@@ -309,20 +310,19 @@ func SearchServer(query string, orderField string, orderBy int, limit int, offse
                                 <span class="cov0" title="0">return result[i].Age &gt; result[j].Age</span>
                         }
                 default:<span class="cov0" title="0">
-                        panic(`ErrorBadOrderField`)</span>
+                        return nil, errors.New(ErrorBadOrderField)</span>
                 }
 
                 <span class="cov8" title="1">sort.Slice(result, less)</span>
 
-        } else<span class="cov0" title="0"> if orderBy != 0 </span><span class="cov0" title="0">{
-                panic(`ErrorBadOrderBy`)</span>
-        }
+        } else<span class="cov8" title="1"> if orderBy != 0 </span><span class="cov0" title="0">{
+                return nil, errors.New(ErrorBadOrderBy)
+        }</span>
 
         <span class="cov8" title="1">lenResult := len(result)
-        if offset &gt; lenResult </span><span class="cov0" title="0">{
-                fmt.Println("[]")
-                panic("offset &gt; lenResult")</span>
-        }
+        if offset &gt; lenResult </span><span class="cov8" title="1">{
+                return &amp;result, nil
+        }</span>
 
         <span class="cov8" title="1">end := offset + limit
         if end &gt; lenResult </span><span class="cov8" title="1">{

@@ -2,98 +2,206 @@ package main
 
 import (
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"net/http/httptest"
-	"net/url"
 	"testing"
+	"time"
 )
 
-func TestSearchHandler_WithSprintf(t *testing.T) {
+func TestFindUsers(t *testing.T) {
+	// Тестовый сервер для успешных запросов
 	server := httptest.NewServer(http.HandlerFunc(searchHandler))
 	defer server.Close()
 
 	tests := []struct {
 		name    string
-		req     *SearchRequest
+		req     SearchRequest
 		IsError bool
 	}{
 		{
-			name:    "Hilda по Age Desc",
-			req:     &SearchRequest{Limit: 10, Offset: 0, Query: "Hilda", OrderField: "Age", OrderBy: OrderByDesc},
+			name:    "Успешный запрос",
+			req:     SearchRequest{Limit: 10, Offset: 0, Query: "Boyd", OrderField: "Age", OrderBy: OrderByDesc},
 			IsError: false,
 		},
 		{
-			name:    "Hilda по Name Asc с offset",
-			req:     &SearchRequest{Limit: 5, Offset: 0, Query: "F", OrderField: "Name", OrderBy: OrderByAsc},
+			name:    "Лимит больше 25 (должен быть обрезан до 25)",
+			req:     SearchRequest{Limit: 50, Offset: 0, Query: "", OrderField: "Name", OrderBy: OrderByAsc},
 			IsError: false,
 		},
 		{
-			name:    "все пользователи по Id Desc",
-			req:     &SearchRequest{Limit: 20, Offset: 0, Query: "", OrderField: "Id", OrderBy: OrderByDesc},
-			IsError: false,
-		},
-		{
-			name:    "Мария без orderField",
-			req:     &SearchRequest{Limit: 15, Offset: 10, Query: "", OrderField: "", OrderBy: OrderByAsc},
+			name:    "Отрицательный лимит",
+			req:     SearchRequest{Limit: -1, Offset: 0, Query: "", OrderField: "Name", OrderBy: OrderByAsc},
 			IsError: true,
+		},
+		{
+			name:    "Отрицательный оффсет",
+			req:     SearchRequest{Limit: 10, Offset: -1, Query: "", OrderField: "Name", OrderBy: OrderByAsc},
+			IsError: true,
+		},
+		{
+			name:    "Пусто поле сортировки",
+			req:     SearchRequest{Limit: 10, Offset: 0, Query: "", OrderField: "InvalidField", OrderBy: OrderByAsc},
+			IsError: false,
 		},
 	}
 
-	for caseNum, tt := range tests {
+	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			reqURL := fmt.Sprintf(
-				"%s/search?query=%s&orderField=%s&orderBy=%d&limit=%d&offset=%d",
-				server.URL,
-				url.QueryEscape(tt.req.Query),
-				url.QueryEscape(tt.req.OrderField),
-				tt.req.OrderBy,
-				tt.req.Limit,
-				tt.req.Offset,
-			)
+			searchClient := &SearchClient{
+				AccessToken: "test-token",
+				URL:         server.URL,
+			}
 
-			resp, err := http.Get(reqURL)
+			resp, err := searchClient.FindUsers(tt.req)
+
+			if tt.IsError {
+				if err == nil {
+					t.Errorf("ожидали ошибку, но получили nil")
+				}
+				return
+			}
 
 			if err != nil {
-				t.Errorf("unexpected error: %d %v", caseNum, err)
-			}
-			defer func() {
-				if err = resp.Body.Close(); err != nil {
-					t.Errorf("close body error: %v", err)
-				}
-			}()
-
-			var users []User
-			if err := json.NewDecoder(resp.Body).Decode(&users); err != nil {
-				t.Errorf("decode error: %v", err)
+				t.Errorf("неожиданная ошибка: %v", err)
+				return
 			}
 
+			if resp == nil {
+				t.Errorf("ожидали не nil ответ")
+			}
 		})
 	}
 }
 
-func TestSearchHandler_Success(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(searchHandler))
+// Тест ошибки 401 Unauthorized
+func TestFindUsers401(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+	}))
 	defer server.Close()
 
-}
-
-func TestSearchHandler(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(searchHandler))
-	defer server.Close()
-
-	resp, err := http.Get(
-		server.URL + "/search?query=Иван&orderField=Age&orderBy=1&limit=10&offset=0",
-	)
-
-	if err != nil {
-		fmt.Println(err)
+	searchClient := &SearchClient{
+		AccessToken: "invalid-token",
+		URL:         server.URL,
 	}
 
-	defer func() {
-		if err := resp.Body.Close(); err != nil {
-			fmt.Println(err)
-		}
-	}()
+	_, err := searchClient.FindUsers(SearchRequest{Limit: 10})
+	if err == nil {
+		t.Errorf("ожидали ошибку 401")
+	}
+}
 
+// Тест ошибки 500 Internal Server Error
+func TestFindUsers500(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer server.Close()
+
+	searchClient := &SearchClient{
+		AccessToken: "test-token",
+		URL:         server.URL,
+	}
+
+	_, err := searchClient.FindUsers(SearchRequest{Limit: 10})
+	if err == nil {
+		t.Errorf("ожидали ошибку 500")
+	}
+}
+
+// Тест невалидного JSON в ошибке
+func TestFindUsersBadJSON(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusBadRequest)
+		_, err := w.Write([]byte("invalid json"))
+		if err != nil {
+			t.Errorf(err.Error())
+		}
+	}))
+	defer server.Close()
+
+	searchClient := &SearchClient{
+		AccessToken: "test-token",
+		URL:         server.URL,
+	}
+
+	_, err := searchClient.FindUsers(SearchRequest{Limit: 10})
+	if err == nil {
+		t.Errorf("ожидали ошибку невалидного JSON")
+	}
+}
+
+// Тест неизвестной ошибки 400
+func TestFindUsersUnknownBadRequest(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusBadRequest)
+		errorResp := SearchErrorResponse{Error: "UnknownError"}
+		err := json.NewEncoder(w).Encode(errorResp)
+		if err != nil {
+			t.Errorf(err.Error())
+		}
+	}))
+	defer server.Close()
+
+	searchClient := &SearchClient{
+		AccessToken: "test-token",
+		URL:         server.URL,
+	}
+
+	_, err := searchClient.FindUsers(SearchRequest{Limit: 10})
+	if err == nil {
+		t.Errorf("ожидали неизвестную ошибку 400")
+	}
+}
+
+// Тест невалидного JSON в ответе
+func TestFindUsersInvalidResponseJSON(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, err := w.Write([]byte("invalid json"))
+		if err != nil {
+			t.Errorf(err.Error())
+		}
+	}))
+	defer server.Close()
+
+	searchClient := &SearchClient{
+		AccessToken: "test-token",
+		URL:         server.URL,
+	}
+
+	_, err := searchClient.FindUsers(SearchRequest{Limit: 10})
+	if err == nil {
+		t.Errorf("ожидали ошибку невалидного JSON в ответе")
+	}
+}
+
+// Тест таймаута
+func TestFindUsersTimeout(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		time.Sleep(2 * time.Second) // Больше чем таймаут клиента
+	}))
+	defer server.Close()
+
+	searchClient := &SearchClient{
+		AccessToken: "test-token",
+		URL:         server.URL,
+	}
+
+	_, err := searchClient.FindUsers(SearchRequest{Limit: 10})
+	if err == nil {
+		t.Errorf("ожидали ошибку таймаута")
+	}
+}
+
+// Тест сетевой ошибки
+func TestFindUsersNetworkError(t *testing.T) {
+	searchClient := &SearchClient{
+		AccessToken: "test-token",
+		URL:         "http://invalid-url-that-does-not-exist.local",
+	}
+
+	_, err := searchClient.FindUsers(SearchRequest{Limit: 10})
+	if err == nil {
+		t.Errorf("ожидали сетевую ошибку")
+	}
 }

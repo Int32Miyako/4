@@ -3,7 +3,7 @@ package main
 import (
 	"encoding/json"
 	"encoding/xml"
-	"fmt"
+	"errors"
 	"net/http"
 	"os"
 	"sort"
@@ -25,7 +25,7 @@ func searchHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(users); err != nil {
+	if err = json.NewEncoder(w).Encode(users); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 	}
 }
@@ -96,19 +96,18 @@ func SearchServer(query string, orderField string, orderBy int, limit int, offse
 				return result[i].Age > result[j].Age
 			}
 		default:
-			panic(`ErrorBadOrderField`)
+			return nil, errors.New("ErrorBadOrderField")
 		}
 
 		sort.Slice(result, less)
 
 	} else if orderBy != 0 {
-		panic(`ErrorBadOrderBy`)
+		return nil, errors.New(ErrorBadOrderBy)
 	}
 
 	lenResult := len(result)
 	if offset > lenResult {
-		fmt.Println("[]")
-		panic("offset > lenResult")
+		return &result, nil
 	}
 
 	end := offset + limit
